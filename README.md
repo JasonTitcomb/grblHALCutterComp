@@ -1,6 +1,6 @@
-﻿# Cutter Compensation
+﻿# Cutter Compensation Plugin for grblHAL
 
-This tree contains the cutter compensation core and the grblHAL shim that is already wired into the local parser and motion path.
+This tree contains the cutter compensation core and the grblHAL shim.
 
 ## Files in this tree
 
