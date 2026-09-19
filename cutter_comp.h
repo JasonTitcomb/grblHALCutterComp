@@ -1,0 +1,275 @@
+
+
+/*
+ * cutter_comp.h
+ * Jason Titcomb 2026
+ * code is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with grblHAL. If not, see <http://www.gnu.org/licenses/>.
+ */
+
+#ifndef CUTTER_COMP_H
+#define CUTTER_COMP_H
+#include "config.h"
+#include <stdbool.h>
+#include <stdint.h>
+
+#if CUTTER_COMP_ENABLE
+
+#define CUTTER_COMP_VERSION "0.1"
+
+/* CUTTER_COMP_ENABLE modes:
+ * 0 = disabled
+ * 1 = enabled
+ * 2 = enabled with lookahead
+ */
+#if CUTTER_COMP_ENABLE == 2
+#define CC_ENABLE_LOOKAHEAD 1
+#else
+#define CC_ENABLE_LOOKAHEAD 0
+#endif
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+#define CC_IN_CAP 2
+
+/*
+ * Corner style selection:
+ * CC_ENABLE_FACET_CORNER 0 -> roll path (CC_CORNER_TREATMENT_MODE is ignored).
+ * CC_ENABLE_FACET_CORNER 1 and CC_CORNER_TREATMENT_MODE 0 -> roll.
+ * CC_ENABLE_FACET_CORNER 1 and CC_CORNER_TREATMENT_MODE != 0 -> chamfer-style treatment.
+ */
+#ifndef CC_ENABLE_FACET_CORNER
+#define CC_ENABLE_FACET_CORNER 1
+#endif
+
+#ifndef CC_CORNER_TREATMENT_MODE
+#define CC_CORNER_TREATMENT_MODE 0
+#endif
+
+#ifndef CC_INSERT_CAP
+#if CC_ENABLE_FACET_CORNER
+#define CC_INSERT_CAP 3
+#else
+#define CC_INSERT_CAP 1
+#endif
+#endif
+
+#ifndef CC_STOP_ON_GAP
+#define CC_STOP_ON_GAP 1
+#endif
+
+#ifndef CC_LOOKAHEAD_CAP
+#define CC_LOOKAHEAD_CAP 8
+#endif
+
+#ifndef CC_LOOKAHEAD_STEPS
+#define CC_LOOKAHEAD_STEPS 4
+#endif
+
+#ifndef CC_LA_TARGET_BATCH_EMIT
+#define CC_LA_TARGET_BATCH_EMIT 1
+#endif
+
+#ifndef CC_LA_TRIM_OVERLAP
+#define CC_LA_TRIM_OVERLAP (CC_LOOKAHEAD_STEPS + 3)
+#endif
+
+#ifndef CC_LA_EMIT_HOLDBACK
+#define CC_LA_EMIT_HOLDBACK CC_LA_TRIM_OVERLAP
+#endif
+
+#ifndef CC_LA_MIN_PENDING
+#define CC_LA_MIN_PENDING (CC_LA_EMIT_HOLDBACK + CC_LA_TARGET_BATCH_EMIT)
+#endif
+
+#ifndef CC_OUT_CAP
+#if CC_ENABLE_LOOKAHEAD
+#define CC_OUT_CAP (CC_LOOKAHEAD_CAP + 1)
+#else
+#define CC_OUT_CAP (1 + CC_INSERT_CAP)
+#endif
+#endif
+
+
+typedef struct
+{
+    float x;
+    float y;
+} vec2;
+
+
+typedef enum {
+    CC_UNITS_MM = 0,
+    CC_UNITS_INCH = 1
+} cc_units;
+
+typedef enum
+{
+    CC_CM_NONE = 0,
+    CC_CM_IN = 1,
+    CC_CM_STEADY = 2,
+    CC_CM_OUT = 3
+} comp_mode;
+
+typedef enum
+{
+    CC_MOT_EMPTY = 0,
+    CC_MOT_RAPID = 1,
+    CC_MOT_LINE = 2,
+    CC_MOT_ARC = 3
+} motion_type;
+
+typedef enum
+{
+    CC_ARC_CW = 0,
+    CC_ARC_CCW = 1
+} arc_dir;
+
+typedef enum
+{
+    CC_IT_NONE = 0,
+    CC_IT_TANGENT = 1,
+    CC_IT_INTERSECT = 2
+} intersect_type;
+
+typedef enum
+{
+    CC_COMP_OFF = 0,//G40
+    CC_COMP_LEFT = 1,//G41
+    CC_COMP_RIGHT = -1//G42
+} comp_side;
+
+typedef enum
+{
+    CC_CTM_ROLL = 0,
+    CC_CTM_CHAMFER = 1
+} cc_corner_treatment_mode;
+
+typedef enum
+{
+    cc_status_OK = 0,
+    cc_status_ArcRadiusInconsistent = 101,
+    cc_status_InvalidMove = 102,
+    cc_status_MoveTooShort = 103,
+    cc_status_ArcLtToolRad = 104,
+    cc_status_CompInCrossing = 105,
+    cc_status_CompOutCrossing = 106,
+    cc_status_UnresolvedGap = 107,
+    cc_status_InputBufferOverflow = 108,
+    cc_status_OutputBufferOverflow = 109,
+    cc_status_GlobalSelfIntersection = 110
+} cc_status_code_t;
+
+typedef enum {
+    CC_MSG_PLAIN = 0,
+    CC_MSG_INFO,
+    CC_MSG_WARNING,
+    CC_MSG_ERROR,
+    CC_MSG_DEBUG
+} msg_type_t;
+
+typedef struct
+{
+    vec2 p_0;
+    vec2 p_1;
+    vec2 center;
+    vec2 startDir;
+    vec2 endDir;
+    float radius;
+    float feed;
+    float z_0;
+    float z_1;
+    uint32_t lineNum;
+    motion_type type;
+    uint8_t arcDir;
+    uint8_t compMode;
+    bool hasXY;
+    bool hasZ;
+    float pause_after; // if -1 then feed hold. if > 0 then dwell for that many seconds. If 0 then no pause.
+    bool valid;
+} move2d;
+
+vec2 cc_v2(float x, float y);
+
+typedef void (*cc_msg_cb)( cc_status_code_t msg, msg_type_t severity, uint32_t lineNum);
+typedef bool (*emit_move_cb)(const move2d *move);
+
+typedef struct
+{
+    float a0;
+    float a1;
+    uint8_t dir;
+} arc_angles;
+
+typedef struct
+{
+    cc_status_code_t status;
+
+    float toolR;
+    int8_t toolSign;
+    comp_side compSide;
+    comp_mode compMode;
+    uint8_t cornerTreatmentMode;
+    uint32_t lastLineNum;
+    cc_units units;
+    float arcTol;
+    float gapTol;
+    float minOutputLen;
+    bool lookaheadEnabled;
+
+    int inHead;
+    int inCount;
+    int outHead;
+    int outCount;
+    bool stopErr;
+    bool havePrevMove;
+    bool havePendingZMove;
+
+    move2d prevOff;
+    move2d pendingZMove;
+    move2d input_buffer[CC_IN_CAP];
+    move2d output_buffer[CC_OUT_CAP];
+#if CC_ENABLE_LOOKAHEAD
+    move2d lookahead_buffer[CC_LOOKAHEAD_CAP];
+#endif
+    int lookahead_count;
+} cc_context;
+cc_units cc_api_get_units(void);
+
+void cc_api_init(float radius, cc_units units, emit_move_cb emitCb, cc_msg_cb errCb);
+
+// Process a move. If move is null, flushes any pending moves and reports any pending errors.
+// Returns CC_OK if the move was processed and emitted successfully, or if flushing completed successfully.
+// Returns an appropriate error code otherwise.
+cc_status_code_t cc_api_process_move(const move2d *move);
+void cc_api_drain_output(void);
+
+// comp_side is CC_COMP_OFF=0, CC_COMP_LEFT=1, or CC_COMP_RIGHT=-1
+void cc_api_set_comp(comp_side side);
+void cc_api_restore_comp(comp_side side, comp_mode mode);
+
+comp_side cc_api_get_comp(void);
+comp_mode cc_api_get_mode(void);
+
+bool cc_api_get_lookahead_enabled(void);
+void cc_api_set_lookahead_enabled(bool enabled);
+
+
+//Requires CC_ENABLE_FACET_CORNER set to 1
+void cc_api_set_corner_treatment_mode(cc_corner_treatment_mode mode);
+cc_corner_treatment_mode cc_api_get_corner_treatment_mode(void);
+
+
+#ifdef __cplusplus
+}
+#endif
+
+#endif // CUTTER_COMP_H
+#endif // CUTTER_COMP_ENABLE
