@@ -8,19 +8,9 @@ This tree contains the cutter compensation core and the grblHAL shim.
   - Core 2D compensation engine, move buffering, and junction handling.
 - `cutter_comp_grblhal.c`
   - grblHAL adapter that converts planner moves into `move2d`, feeds them into the core, and emits compensated moves back through the saved core `mc_line()` and `mc_arc()` callbacks.
-- `gcode.c`
-  - Parser/runtime integration for `G40`, `G41`, `G42`, `G41.1`, and `G42.1`.
-- `config.h`
-  - Build-time gates for the feature via `CUTTER_COMP_ENABLE` and look-ahead behavior via `CC_ENABLE_LOOKAHEAD`.
-- `errors.c`, `report.c`, and `ngc_params.c`
-  - Status strings, modal reporting, and parameter exposure for cutter compensation state.
-
-This repository does not include `grbl_data_portable.h` or `LOOKAHEAD_PROFILES.md`; those were part of an older documentation flow.
 
 ## What is implemented here
 
-- `CUTTER_COMP_ENABLE` gates the feature at compile time.
-- `CC_ENABLE_LOOKAHEAD` gates the cutter compensation global look-ahead pass (gouge checking) at compile time.
 - XY plane only. Entering compensation outside `G17` returns `Status_GcodeIllegalPlane`.
 - Linear moves, rapids, and XY arcs are routed through the shim when compensation is active.
 - `G40`, `G41`, `G42`, `G41.1`, and `G42.1` are parsed.
@@ -44,7 +34,6 @@ The bridge also integrates `G4` dwell commands and `M0`, `M1`, and `M60` program
 Global look-ahead, also referred to here as gouge checking, is available again with cutter compensation enabled. In check mode the parser still routes compensated line and arc blocks through the cutter compensation path so entry conditions and geometry can be validated across the program before running it.
 
 One purpose of this pass is to catch compensated paths that would cut back into already-kept material and overcut the part. When the look-ahead logic detects a global self-intersection in the compensated path, it trims the intersecting region and invalidates the affected source span instead of emitting the original move sequence unchanged. In practice, this means moves from the original g-code file may be avoided when following them would gouge the part.
-
 
 
 
@@ -117,8 +106,6 @@ In addition to these parser-level restrictions, the compensation core can still 
 
 ## Enabling and troubleshooting
 
-- Verify `CUTTER_COMP_ENABLE` evaluates true in `config.h` for the build you are using.
-- `CC_ENABLE_LOOKAHEAD` is selected in `cutter_comp.h` from `CUTTER_COMP_ENABLE` mode: `2` enables look-ahead support, while `1` builds without look-ahead.
 - Runtime look-ahead toggling is available through bit 1 of `$702` only when built with `CUTTER_COMP_ENABLE=2`.
 - If your cutter compensation use case is only a very small diameter wear offset, global look-ahead is often not necessary and may be left disabled.
 - If you use global look-ahead / gouge checking, cutter compensation blocks are validated in that pass as well. Check mode suppresses normal runtime side effects such as emitted messages, so use a real run if you need to inspect the `CC_On` / `CC_Off` reporting path.
