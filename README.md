@@ -1,7 +1,19 @@
 ﻿# Cutter Compensation Plugin for grblHAL
 
 This tree contains the cutter compensation core and the grblHAL shim.
+Version: `0.2`
 
+## Changelog
+
+### 0.2
+
+- Added cutter-compensation option handling through `$702`.
+- With `CUTTER_COMP_ENABLE=2`, `$702` bit 0 selects roll or chamfer corners and bit 1 enables or disables the compiled look-ahead pass.
+- With `CUTTER_COMP_ENABLE=1`, `$702` controls only the corner treatment.
+
+### 0.1
+
+- Initial cutter compensation core and grblHAL integration.
 ## Files in this tree
 
 - `cutter_comp.c` and `cutter_comp.h`

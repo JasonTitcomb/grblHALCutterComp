@@ -20,7 +20,7 @@
 
 #if CUTTER_COMP_ENABLE
 
-#define CUTTER_COMP_VERSION "0.1"
+#define CUTTER_COMP_VERSION "0.2"
 
 /* CUTTER_COMP_ENABLE modes:
  * 0 = disabled

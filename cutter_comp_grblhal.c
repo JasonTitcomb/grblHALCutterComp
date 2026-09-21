@@ -93,15 +93,21 @@ extern "C"
 
     static status_code_t set_options (setting_id_t id, uint_fast16_t int_value)
     {
-        settings.flags.cc_chamfer_corner = int_value & 0xb01;
-        settings.flags.cc_lookahead_enable = !!(int_value & 0xb10);
+        settings.flags.cc_chamfer_corner = int_value & 0x1;
+    #if CUTTER_COMP_ENABLE == 2
+        settings.flags.cc_lookahead_enable = !!(int_value & 0x2);
+    #endif
 
         return Status_OK;
     }
 
     static uint32_t get_options (setting_id_t id)
     {
+    #if CUTTER_COMP_ENABLE == 2
         return settings.flags.cc_chamfer_corner | (settings.flags.cc_lookahead_enable << 1);
+    #else
+        return settings.flags.cc_chamfer_corner;
+    #endif
     }
 
     PROGMEM static const setting_detail_t ioport_settings[] = {
@@ -572,7 +578,9 @@ extern "C"
 
     FLASHMEM static inline void cutter_comp_apply_settings (void)
     {
+#if CUTTER_COMP_ENABLE == 2
         cc_api_set_lookahead_enabled(settings.flags.cc_lookahead_enable);
+#endif
         cc_api_set_corner_treatment_mode(settings.flags.cc_chamfer_corner ? CC_CTM_CHAMFER : CC_CTM_ROLL);
     }
 
