@@ -14,7 +14,7 @@
  * along with grblHAL. If not, see <http://www.gnu.org/licenses/>.
  */
 
-#include "config.h"
+#include "grbl/config.h"
 
 #ifndef CUTTER_COMP_ENABLE
 #define CUTTER_COMP_ENABLE 0

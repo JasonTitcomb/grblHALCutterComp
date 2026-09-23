@@ -14,7 +14,7 @@
 
 #ifndef CUTTER_COMP_H
 #define CUTTER_COMP_H
-#include "config.h"
+#include "grbl/config.h"
 #include <stdbool.h>
 #include <stdint.h>
 
