@@ -1,9 +1,43 @@
 ﻿# Cutter Compensation Plugin for grblHAL
 
 This tree contains the cutter compensation core and the grblHAL shim.
-Version: `0.2`
+Version: `0.3`
+
+> **Experimental:** This code is experimental and is not considered production-ready.
+
+## Quick choice
+
+- **Disabled (`CUTTER_COMP_ENABLE=0`):** choose this if you do not need cutter compensation.
+- **Enabled without lookahead (`CUTTER_COMP_ENABLE=1`):** choose this for straightforward paths or small wear offsets; cutter compensation is available with lower memory use.
+- **Enabled with lookahead (`CUTTER_COMP_ENABLE=2`):** choose this for complex paths that may gouge kept material. It checks upcoming compensated moves and trims potential intersections, using more memory.
+
+## Choosing cutter compensation options
+
+`$702` controls the default corner treatment and, when built with `CUTTER_COMP_ENABLE=2`, global look-ahead for gouge checking:
+
+- Bit 0 (`1`): corner treatment. Leave it clear for roll-around corners; set it for chamfered corners. Choose the style that best suits the part and finish. A `P1` word on the `G41` or `G42` entry block overrides this default for that command.
+- Bit 1 (`2`): global look-ahead. Leave it clear for a small wear offset or when checking only the next move is sufficient. Set it when paths may intersect themselves and you want the wider look-ahead pass to detect and trim potential gouges. This pass can invalidate source moves in the affected span.
+
+The combined `$702` values are `0` for roll/no global look-ahead, `1` for chamfer/no global look-ahead, `2` for roll/with global look-ahead, and `3` for chamfer/with global look-ahead. With `CUTTER_COMP_ENABLE=1`, only bit 0 is available.
+
+### Memory footprint
+
+`CUTTER_COMP_ENABLE` determines the compiled footprint:
+
+- **Disabled (`0`):** cutter compensation is not compiled; lowest RAM and flash use.
+- **Enabled without lookahead (`1`):** cutter compensation is compiled without the look-ahead buffer and gouge-checking pass.
+- **Enabled with lookahead (`2`):** adds the look-ahead buffer and code. On a typical 32-bit target, default capacities add about 1 KB of static RAM and up to 128 bytes of stack while trimming; flash use also increases.
+
+These are build-time costs, unaffected by the `$702` runtime toggle. Exact RAM and flash use depend on the target, compiler, and buffer-capacity overrides.
 
 ## Changelog
+
+### 0.3
+- Fix issue where adjacent G1 move is same length as tool rad using lookahead.
+- Added cc_on_driver_reset to clear cc buffer on Stop.
+- Reuse carrier intersections when filtering finite junction points, avoiding duplicate intersection calculations.
+- Improved tolerance checks.
+- Fix issue with helix moves.
 
 ### 0.2
 

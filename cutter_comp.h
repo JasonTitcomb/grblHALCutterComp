@@ -20,7 +20,7 @@
 
 #if CUTTER_COMP_ENABLE
 
-#define CUTTER_COMP_VERSION "0.2"
+#define CUTTER_COMP_VERSION "0.3"
 
 /* CUTTER_COMP_ENABLE modes:
  * 0 = disabled
@@ -69,6 +69,10 @@ extern "C" {
 #define CC_LOOKAHEAD_CAP 8
 #endif
 
+#ifndef CC_PENDING_EVENT_CAP
+#define CC_PENDING_EVENT_CAP 3
+#endif
+
 #ifndef CC_LOOKAHEAD_STEPS
 #define CC_LOOKAHEAD_STEPS 4
 #endif
@@ -91,9 +95,9 @@ extern "C" {
 
 #ifndef CC_OUT_CAP
 #if CC_ENABLE_LOOKAHEAD
-#define CC_OUT_CAP (CC_LOOKAHEAD_CAP + 1)
+#define CC_OUT_CAP (CC_LOOKAHEAD_CAP + CC_PENDING_EVENT_CAP)
 #else
-#define CC_OUT_CAP (1 + CC_INSERT_CAP)
+#define CC_OUT_CAP (1 + CC_PENDING_EVENT_CAP + CC_INSERT_CAP)
 #endif
 #endif
 
@@ -164,7 +168,10 @@ typedef enum
     cc_status_UnresolvedGap = 107,
     cc_status_InputBufferOverflow = 108,
     cc_status_OutputBufferOverflow = 109,
-    cc_status_GlobalSelfIntersection = 110
+    cc_status_ConsecutiveZMoves = 110,
+    cc_status_PendingEventOverflow = 111,
+    cc_status_Aborted = 112
+    
 } cc_status_code_t;
 
 typedef enum {
@@ -194,11 +201,13 @@ typedef struct
     bool hasZ;
     float pause_after; // if -1 then feed hold. if > 0 then dwell for that many seconds. If 0 then no pause.
     bool valid;
+    bool junctionOnly;
 } move2d;
 
 vec2 cc_v2(float x, float y);
 
 typedef void (*cc_msg_cb)( cc_status_code_t msg, msg_type_t severity, uint32_t lineNum);
+// Return false only for a permanent, unrecoverable failure (e.g. job abort); the move is not retried.
 typedef bool (*emit_move_cb)(const move2d *move);
 
 typedef struct
@@ -221,6 +230,7 @@ typedef struct
     cc_units units;
     float arcTol;
     float gapTol;
+    float junctionTol;
     float minOutputLen;
     bool lookaheadEnabled;
 
@@ -228,18 +238,23 @@ typedef struct
     int inCount;
     int outHead;
     int outCount;
+    unsigned int pendingEventCount;
     bool stopErr;
     bool havePrevMove;
-    bool havePendingZMove;
-
     move2d prevOff;
     move2d pendingZMove;
     move2d input_buffer[CC_IN_CAP];
     move2d output_buffer[CC_OUT_CAP];
+    move2d pendingEvents[CC_PENDING_EVENT_CAP];//M01,M00 events
+    
 #if CC_ENABLE_LOOKAHEAD
     move2d lookahead_buffer[CC_LOOKAHEAD_CAP];
+    move2d lookaheadLeadIn;
+    bool lookaheadLeadInValid;
+    bool lookaheadLeadInSkipNext;
 #endif
     int lookahead_count;
+    
 } cc_context;
 cc_units cc_api_get_units(void);
 

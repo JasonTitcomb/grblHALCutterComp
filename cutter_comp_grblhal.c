@@ -37,7 +37,6 @@ extern "C"
     static bool cc_mc_active = false;
     static volatile bool cc_mc_pause_after_next_motion = false;
     static volatile bool cc_mc_output_paused = false;
-    static float cc_mc_pending_dwell = 0.0f;
     static float cc_mc_input_pos[N_AXIS] = {0};
     static comp_side cc_mc_saved_comp_side = CC_COMP_OFF;
     static comp_mode cc_mc_saved_comp_mode = CC_CM_NONE;
@@ -56,10 +55,13 @@ extern "C"
     static mc_line_ptr core_mc_line;
     static mc_arc_ptr core_mc_arc;
     static bool cc_control_hook_attached = false;
+    static driver_reset_ptr cc_prev_driver_reset;
+    static void cc_on_driver_reset(void);
 
     static void cc_on_control_signals_changed(control_signals_t signals)
     {
-        if (signals.single_block && sys.flags.single_block && state_get() == STATE_CYCLE) {
+        if (signals.single_block && sys.flags.single_block && state_get() == STATE_CYCLE)
+        {
             if (cc_mc_is_active())
                 cc_mc_pause_after_next_motion = true; // mid-compensation: defer to a safe point instead of stopping now
             else
@@ -85,59 +87,60 @@ extern "C"
         if (on_state_change)
             on_state_change(state);
 
-        if (state == STATE_IDLE && cc_mc_output_paused) {
+        if (state == STATE_IDLE && cc_mc_output_paused)
+        {
             cc_mc_output_paused = false;
             cc_api_drain_output();
         }
     }
 
-    static status_code_t set_options (setting_id_t id, uint_fast16_t int_value)
+    static status_code_t set_options(setting_id_t id, uint_fast16_t int_value)
     {
         settings.flags.cc_chamfer_corner = int_value & 0x1;
-    #if CUTTER_COMP_ENABLE == 2
+#if CUTTER_COMP_ENABLE == 2
         settings.flags.cc_lookahead_enable = !!(int_value & 0x2);
-    #endif
+#endif
 
         return Status_OK;
     }
 
-    static uint32_t get_options (setting_id_t id)
+    static uint32_t get_options(setting_id_t id)
     {
-    #if CUTTER_COMP_ENABLE == 2
+#if CUTTER_COMP_ENABLE == 2
         return settings.flags.cc_chamfer_corner | (settings.flags.cc_lookahead_enable << 1);
-    #else
+#else
         return settings.flags.cc_chamfer_corner;
-    #endif
+#endif
     }
 
     PROGMEM static const setting_detail_t ioport_settings[] = {
 #if CUTTER_COMP_ENABLE == 2
-        { Setting_CutterCompOptions, Group_General, "Cutter comp options", NULL, Format_Bitfield, "Chamfer corner,Enable lookahead", NULL, NULL, Setting_IsExtendedFn, set_options, get_options }
+        {Setting_CutterCompOptions, Group_General, "Cutter comp options", NULL, Format_Bitfield, "Chamfer corner,Enable lookahead", NULL, NULL, Setting_IsExtendedFn, set_options, get_options}
 #else
-        { Setting_CutterCompOptions, Group_General, "Cutter comp chamfer corner", NULL, Format_Bool, "Cutter comp chamfer corner", NULL, NULL, Setting_IsExtendedFn, set_options, get_options }
+        {Setting_CutterCompOptions, Group_General, "Cutter comp chamfer corner", NULL, Format_Bool, "Cutter comp chamfer corner", NULL, NULL, Setting_IsExtendedFn, set_options, get_options}
 #endif
     };
 
     PROGMEM static const setting_descr_t ioport_settings_descr[] = {
 #if CUTTER_COMP_ENABLE == 2
-            { Setting_CutterCompOptions, "'Chamfer corner' controls default corner treatment behavior.\\n"
-                                         "Enable the option for chamfer corner-treatment mode; leave it off to default to roll mode.\\n"
-                                         "A P1 word on the G41/G42 entry block overrides the default for that command.\\n\\n"
-                                         "'Enable lookahead' allow lookahead data for gouge checking.\\n"
-                                         "When disabled, the system looks at the next move only.\\n"
-                                         "When enabled, the system utilizes lookahead data to avoid gouging."}
+        {Setting_CutterCompOptions, "'Chamfer corner' controls default corner treatment behavior.\\n"
+                                    "Enable the option for chamfer corner-treatment mode; leave it off to default to roll mode.\\n"
+                                    "A P1 word on the G41/G42 entry block overrides the default for that command.\\n\\n"
+                                    "'Enable lookahead' allow lookahead data for gouge checking.\\n"
+                                    "When disabled, the system looks at the next move only.\\n"
+                                    "When enabled, the system utilizes lookahead data to avoid gouging."}
 #else
-            { Setting_CutterCompOptions, "Controls default corner treatment behavior.\\n"
-                                         "Enable the option for chamfer corner-treatment mode; leave it off to default to roll mode.\\n"
-                                         "A P1 word on the G41/G42 entry block overrides the default for that command." }
+        {Setting_CutterCompOptions, "Controls default corner treatment behavior.\\n"
+                                    "Enable the option for chamfer corner-treatment mode; leave it off to default to roll mode.\\n"
+                                    "A P1 word on the G41/G42 entry block overrides the default for that command."}
 #endif
     };
 
-    static void onReportOptions (bool newopt)
+    static void onReportOptions(bool newopt)
     {
         on_report_options(newopt);
 
-        if(!newopt)
+        if (!newopt)
             report_plugin("Cutter compensation", CUTTER_COMP_VERSION);
     }
 
@@ -147,7 +150,6 @@ extern "C"
         cc_mc_active = false;
         cc_mc_pause_after_next_motion = false;
         cc_mc_output_paused = false;
-        cc_mc_pending_dwell = 0.0f;
 
         for (int i = 0; i < N_AXIS; ++i)
             cc_mc_input_pos[i] = pos ? pos[i] : 0.0f;
@@ -210,7 +212,7 @@ extern "C"
         return cc_api_process_move(&marker);
     }
 
-    static void cc_message(cc_status_code_t msgcode, msg_type_t severity, uint32_t lineNum)
+     static void cc_message(cc_status_code_t msgcode, msg_type_t severity, uint32_t lineNum)
     {
         const char *msg = "Unknown";
         switch (msgcode)
@@ -244,8 +246,14 @@ extern "C"
         case cc_status_CompOutCrossing:
             msg = "Crossing error: move out of cutting area";
             break;
-        case cc_status_GlobalSelfIntersection:
-            msg = "Global self intersection detected";
+        case cc_status_ConsecutiveZMoves:
+            msg = "Too many consecutive Z moves";
+            break;
+        case cc_status_PendingEventOverflow:
+            msg = "Too many consecutive pauses";
+            break;
+        case cc_status_Aborted:
+            msg = "Operation aborted";
             break;
         }
 
@@ -262,6 +270,7 @@ extern "C"
         }
         if (severity == CC_MSG_ERROR)
             system_set_exec_state_flag(EXEC_FEED_HOLD);
+
     }
 
     // Creates a move2d struct from the given grblHAL cutter compensation data.
@@ -338,17 +347,19 @@ extern "C"
 
         if (side != CC_COMP_OFF && mv.compMode == CC_CM_IN)
         {
-            cc_units units = cc_api_get_units();
-            float r = cc.radius;
+            // cc.radius is always stored in mm; convert for display when the parser is in inch mode
+            bool imperial = gc_state.modal.units_imperial;
+            float r = imperial ? cc.radius / MM_PER_INCH : cc.radius;
             const char *corner_mode = cc_api_get_corner_treatment_mode() == CC_CTM_CHAMFER ? "Chamfer" : "Roll";
             char msg[96];
-            snprintf(msg, sizeof(msg), "CC_On R=%.4f %s Corner=%s", r, units == CC_UNITS_INCH ? "in" : "mm", corner_mode);
+            snprintf(msg, sizeof(msg), "CC_On R=%.4f %s Corner=%s", r, imperial ? "in" : "mm", corner_mode);
             report_message(msg, Message_Info);
         }
 
         cc_status_code_t st = cc_api_process_move(&mv);
-        if (st == cc_status_OK && turning_off) {
-            if((st = cc_api_process_move(0)) == cc_status_OK)
+        if (st == cc_status_OK && turning_off)
+        {
+            if ((st = cc_api_process_move(0)) == cc_status_OK)
                 report_message("CC_Off", Message_Info);
         }
 
@@ -381,16 +392,31 @@ extern "C"
         move2d mv = cc_mc_to_move2d(cc, target, pl_data, position, offset, radius, turns, true);
 
         cc_status_code_t st = cc_api_process_move(&mv);
-        if (st == cc_status_OK && turning_off) {
+        if (st == cc_status_OK && turning_off)
+        {
             st = cc_api_process_move(0);
         }
 
         return st == cc_status_OK ? Status_Handled : Status_CutterCompInvalid;
     }
 
+    static inline void cc_mc_pause(float dwell)
+    {
+        protocol_buffer_synchronize();
+        if (dwell > 0.0f)
+        {
+            mc_dwell(dwell);
+            if (!sys.flags.single_block)
+                return;
+        }
+
+        system_set_exec_state_flag(EXEC_FEED_HOLD);
+        protocol_execute_realtime();
+    }
+
     static bool cc_emit_via_mc(const move2d *mv)
     {
-        // report_message("CC: cc_emit_via_mc", Message_Info);
+        //report_message("CC: cc_emit_via_mc", Message_Info);
         plan_line_data_t local_pl_data = {0};
         plan_line_data_t *pl_data = &local_pl_data;
         float target[N_AXIS] = {0};
@@ -401,11 +427,7 @@ extern "C"
 
         if (mv->pause_after != 0.0f)
         {
-            // Synthetic marker for a deferred pause or dwell after the next emitted motion.
-            cc_mc_pause_after_next_motion = true;
-            cc_mc_pending_dwell = 0.0f;
-            if (mv->pause_after > 0.0f)
-                cc_mc_pending_dwell = mv->pause_after;
+            cc_mc_pause(mv->pause_after);
             return true;
         }
 
@@ -413,6 +435,8 @@ extern "C"
             local_pl_data = cc_mc_active_plan_data;
 
         local_pl_data.feed_rate = mv->feed;
+        local_pl_data.line_number = mv->lineNum;
+
         local_pl_data.condition.rapid_motion = (mv->type == CC_MOT_RAPID) ? 1 : 0;
 
         if (mv->type == CC_MOT_LINE || mv->type == CC_MOT_RAPID)
@@ -420,7 +444,8 @@ extern "C"
             target[plane.axis_0] = mv->p_1.x;
             target[plane.axis_1] = mv->p_1.y;
             target[plane.axis_linear] = mv->z_1;
-            core_mc_line(target, pl_data);
+            if (core_mc_line(target, pl_data) == Status_Aborted)
+                return false;
             emitted_motion = true;
         }
         else if (mv->type == CC_MOT_ARC)
@@ -440,94 +465,87 @@ extern "C"
             offset[plane.axis_linear] = 0.0f;
 
             int32_t turns = (mv->arcDir == CC_ARC_CCW) ? 1 : -1;
-            core_mc_arc(target, pl_data, position, offset, mv->radius, plane, turns);
+            if (core_mc_arc(target, pl_data, position, offset, mv->radius, plane, turns) == Status_Aborted)
+                return false;
             emitted_motion = true;
         }
 
-        // Only a synthetic cutter-comp pause marker should pause here; grbl already pauses once per
-        // gcode line natively, so reacting to sys.flags.single_block per emitted sub-move would
-        // over-pause at corner/roll transitions within a single line.
         if (cc_mc_pause_after_next_motion && emitted_motion)
         {
-            float dwell = cc_mc_pending_dwell;
-
             report_message("CC: Pausing after move", Message_Info);
             cc_mc_pause_after_next_motion = false;
-            cc_mc_pending_dwell = 0.0f;
-
-            if (dwell > 0.0f)
-            {
-                report_message("CC: Dwell...", Message_Info);
-                mc_dwell(dwell);
-                return true;
-            }
-
-            protocol_buffer_synchronize();
-            system_set_exec_state_flag(EXEC_FEED_HOLD);
-            protocol_execute_realtime();
+            cc_mc_pause(0.0f);
         }
 
         return true;
     }
 
     // Trap G4
-    FLASHMEM static status_code_t OnPreGcodeExecute (modal_groups_t *commands, parser_state_t *gc_state, parser_block_t *gc_block, spindle_t *spindle)
+    FLASHMEM static status_code_t OnPreGcodeExecute(modal_groups_t *commands, parser_state_t *gc_state, parser_block_t *gc_block, spindle_t *spindle)
     {
-        if(cc_mc_is_active() && gc_block->non_modal_command == NonModal_Dwell) {
-            if(cc_mc_enqueue_pause_marker(gc_block->values.p) != cc_status_OK)
+        if ((gc_block->modal.program_flow == ProgramFlow_CompletedM2 ||
+             gc_block->modal.program_flow == ProgramFlow_CompletedM30) &&
+            gc_block->modal.cutter_comp.side != CComp_Off)
+            return Status_CutterCompConflict;
+
+        if (cc_mc_is_active() && gc_block->non_modal_command == NonModal_Dwell)
+        {
+            if (cc_mc_enqueue_pause_marker(gc_block->values.p) != cc_status_OK)
                 return Status_CutterCompInvalid;
 
             gc_block->non_modal_command = NonModal_NoAction;
         }
 
-        if(commands->G1)
+        if (commands->G1)
             gc_get_plane_data(&plane, gc_block->modal.plane_select);
 
         return Status_Unhandled;
     }
 
     // Trap M0, M1 and M60
-    FLASHMEM static status_code_t onProgramPaused (program_flow_t program_flow, bool check_mode)
+    FLASHMEM static status_code_t onProgramPaused(program_flow_t program_flow, bool check_mode)
     {
-        if((on_program_paused == NULL || on_program_paused(program_flow, check_mode) == Status_Unhandled) &&
-             !check_mode && program_flow != ProgramFlow_Running) {
+        if ((on_program_paused == NULL || on_program_paused(program_flow, check_mode) == Status_Unhandled) &&
+            !check_mode && program_flow != ProgramFlow_Running)
+        {
 
-            if(cc_mc_is_active())
+            if (cc_mc_is_active())
                 return cc_mc_enqueue_pause_marker(-1.0f) == cc_status_OK ? Status_Handled : Status_CutterCompInvalid;
         }
         return on_program_paused ? on_program_paused(program_flow, check_mode) : Status_Unhandled;
     }
 
-    FLASHMEM void onModalStateAction (modal_state_action_t action, modal_groups_t commands, void *context)
+    FLASHMEM void onModalStateAction(modal_state_action_t action, modal_groups_t commands, void *context)
     {
-        if(on_modal_state_action)
+        if (on_modal_state_action)
             on_modal_state_action(action, commands, context);
 
-        switch(action) {
+        switch (action)
+        {
 
-            case ModalState_Save:
-                report_message("cutter_comp_save_state", Message_Plain);
-                cc_mc_save_modal_state();
-                break;
+        case ModalState_Save:
+            report_message("cutter_comp_save_state", Message_Plain);
+            cc_mc_save_modal_state();
+            break;
 
-            case ModalState_Invalidate:
-                cc_mc_invalidate_modal_state();
-                report_message("cutter_comp_invalidate_state", Message_Plain);
-                break;
+        case ModalState_Invalidate:
+            cc_mc_invalidate_modal_state();
+            report_message("cutter_comp_invalidate_state", Message_Plain);
+            break;
 
-            case ModalState_Restore:
-                // commands.G7 is set on change, this call will be followed by cc_enable with restored values (for now)
-                report_message("cutter_comp_restore_state", Message_Plain);
-                //The state of the comp engine should now be the same as it was.
-                cc_mc_restore_modal_state();
-                break;
+        case ModalState_Restore:
+            // commands.G7 is set on change, this call will be followed by cc_enable with restored values (for now)
+            report_message("cutter_comp_restore_state", Message_Plain);
+            // The state of the comp engine should now be the same as it was.
+            cc_mc_restore_modal_state();
+            break;
 
-            default:
-                break;
+        default:
+            break;
         }
     }
 
-    FLASHMEM void cc_init (void)
+    FLASHMEM void cc_init(void)
     {
         static bool init_ok = false;
         static setting_details_t setting_details = {
@@ -536,10 +554,10 @@ extern "C"
             .n_settings = sizeof(ioport_settings) / sizeof(setting_detail_t),
             .descriptions = ioport_settings_descr,
             .n_descriptions = sizeof(ioport_settings_descr) / sizeof(setting_descr_t),
-            .save = settings_write_global
-        };
+            .save = settings_write_global};
 
-        if(!init_ok) {
+        if (!init_ok)
+        {
 
             init_ok = true;
             settings_register(&setting_details);
@@ -547,7 +565,7 @@ extern "C"
             core_mc_line = grbl.mc_line;
             grbl.mc_line = cc_mc_line_in;
 
-            core_mc_arc  = grbl.mc_arc;
+            core_mc_arc = grbl.mc_arc;
             grbl.mc_arc = cc_mc_arc_in;
 
             on_program_paused = grbl.on_program_paused;
@@ -559,24 +577,23 @@ extern "C"
             on_state_change = grbl.on_state_change;
             grbl.on_state_change = cc_on_state_change;
 
-            // This needs to be done after the other callbacks are set up, to ensure proper chaining of control signal changes.
-            // cc_prev_on_control_signals_changed = grbl.on_control_signals_changed;
-            // grbl.on_control_signals_changed = cc_on_control_signals_changed;
-
             on_report_options = grbl.on_report_options;
             grbl.on_report_options = onReportOptions;
 
             on_pre_gcode_execute = grbl.on_pre_gcode_execute;
             grbl.on_pre_gcode_execute = OnPreGcodeExecute;
+
+            cc_prev_driver_reset = hal.driver_reset; // Save the previous driver reset callback
+            hal.driver_reset = cc_on_driver_reset;  // Set the driver reset callback to our custom handler
         }
     }
 
-    FLASHMEM static inline comp_side cutter_comp_side_to_core (ccomp_mode_t side)
+    FLASHMEM static inline comp_side cutter_comp_side_to_core(ccomp_mode_t side)
     {
         return side == CComp_Left ? CC_COMP_LEFT : (side == CComp_Right ? CC_COMP_RIGHT : CC_COMP_OFF);
     }
 
-    FLASHMEM static inline void cutter_comp_apply_settings (void)
+    FLASHMEM static inline void cutter_comp_apply_settings(void)
     {
 #if CUTTER_COMP_ENABLE == 2
         cc_api_set_lookahead_enabled(settings.flags.cc_lookahead_enable);
@@ -584,21 +601,39 @@ extern "C"
         cc_api_set_corner_treatment_mode(settings.flags.cc_chamfer_corner ? CC_CTM_CHAMFER : CC_CTM_ROLL);
     }
 
-    FLASHMEM bool cc_enable (gc_ccomp_t *comp_data, plane_t cc_plane, coord_data_t *position)
+    // Callback for handling driver reset events. This ensures that the cutter compensation
+    // state is properly re-initialized whenever the driver is reset.
+    FLASHMEM static void cc_on_driver_reset(void)
+    {
+        if (cc_prev_driver_reset)
+            cc_prev_driver_reset();
+
+        cc_api_init(cc.radius, CC_UNITS_MM, cc_emit_via_mc, cc_message);
+        cutter_comp_apply_settings();
+        cc.side = CComp_Off;
+        cc_mc_reset_runtime_state(NULL);
+        cc_mc_invalidate_modal_state();
+    }
+
+    FLASHMEM bool cc_enable(gc_ccomp_t *comp_data, plane_t cc_plane, coord_data_t *position)
     {
         memcpy(&cc, comp_data, sizeof(gc_ccomp_t));
 
-        if(comp_data->side) {
+        if (comp_data->side)
+        {
             plane = cc_plane;
             cc_api_init(comp_data->radius, CC_UNITS_MM, cc_emit_via_mc, cc_message);
             cutter_comp_apply_settings();
             cc_mc_sync_input_pos(position->values); // Ensure start pos is current, not stale
             cc_api_set_comp(cutter_comp_side_to_core(comp_data->side));
-        } else {
+        }
+        else
+        {
             cc_api_process_move(0);
             // Pause once here, right after the final compensated exit move is flushed, so a standalone
             // G40 cancel stops immediately rather than deferring to the next (uncompensated) line.
-            if (sys.flags.single_block) {
+            if (sys.flags.single_block)
+            {
                 protocol_buffer_synchronize();
                 system_set_exec_state_flag(EXEC_FEED_HOLD);
                 protocol_execute_realtime();
