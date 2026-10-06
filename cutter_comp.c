@@ -434,6 +434,21 @@ static inline intersect_type cc_intersect_line_line(const move2d *ln1, const mov
         return CC_IT_NONE;
     }
 
+    if (cc_is_near(ln1->p_0, ln2->p_0, 0.0f) ||
+        cc_is_near(ln1->p_0, ln2->p_1, 0.0f))
+    {
+        *ip = ln1->p_0;
+        *tip = true;
+        return CC_IT_INTERSECT;
+    }
+    if (cc_is_near(ln1->p_1, ln2->p_0, 0.0f) ||
+        cc_is_near(ln1->p_1, ln2->p_1, 0.0f))
+    {
+        *ip = ln1->p_1;
+        *tip = true;
+        return CC_IT_INTERSECT;
+    }
+
     t = cc_cross(cc_sub(q, p), s) / den;
     u = cc_cross(cc_sub(q, p), r) / den;
     *ip = cc_add(p, cc_scale(r, t));

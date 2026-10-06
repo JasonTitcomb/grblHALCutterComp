@@ -1,7 +1,7 @@
 ﻿# Cutter Compensation Plugin for grblHAL
 
 This tree contains the cutter compensation core and the grblHAL shim.
-Version: `0.3`
+Version: `0.4`
 
 > **Experimental:** This code is experimental and is not considered production-ready.
 
@@ -32,6 +32,8 @@ These are build-time costs, unaffected by the `$702` runtime toggle. Exact RAM a
 
 ## Changelog
 
+### 0.4
+- Fixed small numerical errors.
 ### 0.3
 - Fix issue where adjacent G1 move is same length as tool rad using lookahead.
 - Added cc_on_driver_reset to clear cc buffer on Stop.
